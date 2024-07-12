@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { notEqual } from 'assert';
 import { MensajesChat } from 'src/entities/mensajesChat.entity';
 import { SalasChat } from 'src/entities/salasChat.entity';
 import { SuscriptoresSalasChat } from 'src/entities/suscriptoresSalasChat.entity';
@@ -26,10 +27,11 @@ export class MessagesWsService {
         return await this.conectedUsers.save(userConected);
     }
 
-    async searchClientsConnect(userId:string){
-        return await this.conectedUsers.find({
-            where:{userId: userId}
-        })
+    async searchClientsConnect(userIds: string[]){
+        return await this.conectedUsers
+                .createQueryBuilder()
+                .where('userId IN (:...userIds)', { userIds })
+                .getMany();
     }
 
     async obtenerSalasSuscritas(id_user: string, salasActuales:string[]):Promise<SuscriptoresSalasChat[]> {
@@ -59,6 +61,31 @@ export class MessagesWsService {
         return message;
     }
 
+    async updateMessagesToRead(id_sala: string, id_user: string): Promise<any> {
+        try {
+            // const subscriberToUpdate = await this.suscriptoresChats.findOne({ where: { id_sala: id_sala, id_user: id_user } });
+            // if(subscriberToUpdate) {
+            //     subscriberToUpdate.mensajes_por_leer = subscriberToUpdate.mensajes_por_leer + 1;
+            //     return this.suscriptoresChats.save(subscriberToUpdate);
+            // }            
+            // console.log('CANTIDAD DE MENSAJES ', subscriberToUpdate);      
+            const update = await this.suscriptoresChats
+                        .createQueryBuilder()
+                        .update(SuscriptoresSalasChat)
+                        .set({ mensajes_por_leer: () => `mensajes_por_leer + 1` })
+                        .where('id_sala = :idSala', { idSala: id_sala })
+                        .andWhere('id_user != :idUser', { idUser: id_user })
+                        .execute();
+            console.log('CANTIDAD DE MENSAJES ', update);           
+        } catch (error) {
+            console.log('CANTIDAD DE MENSAJES ', 'No fue posible actualizar cantidad mensajes', error);            
+        }
+    }
+
+    async getMessagesToRead(id_sala: string, id_user: string): Promise<any> {
+        return (await this.suscriptoresChats.findOne({ where: { id_sala: id_sala, id_user: id_user }, select: ['mensajes_por_leer'] })).mensajes_por_leer;
+    }
+
     async validarSala(nombre_salas: string[]): Promise<salasChat[]> {
         return await this.salasSubcritas
             .createQueryBuilder('salas')
@@ -72,7 +99,7 @@ export class MessagesWsService {
         });
 
         if (data.suscriptores.length) {
-            const dataSubs = data.suscriptores.map((susc: suscriptor) => ({ ...susc, id_sala: this.idSala }));
+            const dataSubs = data.suscriptores.map((susc: suscriptor) => ({ ...susc, id_sala: this.idSala, mensajes_por_leer: 0 }));
             
             return { type: "response", message: await this.createSubscriptor(dataSubs) };
         }
@@ -93,7 +120,7 @@ export class MessagesWsService {
         });
 
         if (data.suscriptores.length) {
-            const dataSubs = data.suscriptores.map((susc: suscriptor) => ({ ...susc, id_sala: this.idSala, id_suscriptor: susc.id_user }));
+            const dataSubs = data.suscriptores.map((susc: suscriptor) => ({ ...susc, id_sala: this.idSala, id_suscriptor: susc.id_user, mensajes_por_leer: 0 }));
             return { type: "response", message: await this.createSubscriptor(dataSubs) };
         }
 

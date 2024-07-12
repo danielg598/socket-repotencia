@@ -3,17 +3,17 @@ import { Server, Socket } from 'socket.io';
 import { mensajes, suscriptor } from 'src/interfaces/interfaces';
 import { MessagesWsService } from './messages-ws.service';
 import { SuscriptoresSalasChat } from 'src/entities/suscriptoresSalasChat.entity';
+import { userConected } from 'src/entities/userConected.entity';
 
 @WebSocketGateway({cors:true})
-export class MessagesWsGateway implements OnGatewayConnection, OnGatewayDisconnect {
+export class MessagesWsGateway implements OnGatewayConnection, OnGatewayDisconnect { 
   
   constructor(private readonly messagesWsService: MessagesWsService) { }
 
   @WebSocketServer() server: Server = new Server();
 
-  handleConnection(client: Socket) {
-    
-
+  handleConnection(client: Socket, user_id: string) {
+    console.log('USUARIO CONECTADO ', client.id);
   }
 
   handleDisconnect(client: Socket) {
@@ -38,7 +38,7 @@ export class MessagesWsGateway implements OnGatewayConnection, OnGatewayDisconne
   }
 
   @SubscribeMessage('joinRoom')
-  async handleJoinRoom(client: Socket,params:{ id_user: string, salasActuales: string[]}) {
+  async handleJoinRoom(client: Socket, params: { id_user: string, salasActuales: string[] }) {
     console.log(params.salasActuales,"desde join room ");
     
     let salasSuscritas: suscriptor[] = [];   
@@ -55,7 +55,8 @@ export class MessagesWsGateway implements OnGatewayConnection, OnGatewayDisconne
           // client.join("salaSuscrita");
           data.mensajes = [];
           // await this.messagesWsService.createSala(data)
-  
+          console.log('INFO SUBSCRIPTION ', `Se ha unnido el cliente ${client.id}  a la sala ${data.nombre_sala}`);
+          
         })
   
         client.emit('joinedRooms', salasSuscritas);
@@ -84,29 +85,68 @@ export class MessagesWsGateway implements OnGatewayConnection, OnGatewayDisconne
     })
   }
 
-  @SubscribeMessage('createSala')
+  @SubscribeMessage('createRoom')
   async handleCreateSala(client: Socket, data: { nombre_sala: string, creador: string, fecha_creacion: Date, suscriptores: suscriptor[] }) {
     await this.messagesWsService.createSala(data).then(async res => {
       if (res.type === "warning") {
         client.emit('advertencia', res.message)
       } else {
-        let sala2 = res.message;
+        // let sala2 = res.message;
         let sala = (res.message as SuscriptoresSalasChat[]).filter((subs: SuscriptoresSalasChat) => (subs.id_user === data.creador));
         console.log(sala, "salllllaaaaaaa");
         
-        this.server.emit('newSala', sala)
+
+        const principalSubscriber = (res.message as SuscriptoresSalasChat[]).filter((subs: SuscriptoresSalasChat) => (subs.id_user === data.creador));
+        await this.verifyConnectedClients(principalSubscriber as SuscriptoresSalasChat[]);
+
+        const otherSubscribers = (res.message as SuscriptoresSalasChat[]).filter((subs: SuscriptoresSalasChat) => (subs.id_user !== data.creador));
+        await this.verifyConnectedClients(otherSubscribers as SuscriptoresSalasChat[]);
+
+        // this.server.emit('newSala', sala)
         
-        this.server.emit('salaSuscrita', ...sala);
+        // this.server.emit('salaSuscrita', ...sala);
 
       }
     });
   }
 
+  // Método para suscribir clientes de usuarios conectados a salas en las que sean agregados
+  async verifyConnectedClients(room: (suscriptor & SuscriptoresSalasChat)[]) {
+    console.log('LLAMADO A LA VERIFICACIÓN DE CLIENTES ', room);
+
+    let userIds = [];
+    let roomId = '';
+
+    room.map((subscriber: SuscriptoresSalasChat) => {
+      userIds.push(subscriber.id_user);
+      roomId = subscriber.id_sala;
+    })
+
+    console.log('USER IDS ', userIds);
+    
+       
+    const connectedClientes = await this.messagesWsService.searchClientsConnect(userIds);
+    this.subscribeClientsToRoom(room[0], connectedClientes)
+  }
+
+  async subscribeClientsToRoom(room: SuscriptoresSalasChat, clients: userConected[]) {
+    console.log('SUBSCRIBIBG CLIENTES ', {room, clients});
+    
+    clients.map((client: userConected) => {
+      console.log('CLIENTE ', client.client.id);
+      
+      const notifyClient = this.server.sockets.sockets.get(client.client.id);
+      notifyClient.join(room.id_sala);
+      notifyClient.emit('newSala', room)
+      notifyClient.emit('salaSuscrita', room)
+    });
+  }
 
   @SubscribeMessage('sendMessage')
-  async handleMessage(client: Socket, data: mensajes) {
+  async handleMessage(client: Socket, data: mensajes) {   
     
     const message = await this.messagesWsService.createMensaje(data);
+    const updateMessagesToRead = await this.messagesWsService.updateMessagesToRead(data.id_sala, data.id_user);
     this.server.emit("newMessage",message)
   }
-}
+} 

@@ -4,7 +4,7 @@ import { SalasChat } from "./salasChat.entity"
 @Entity({name:'suscriptores_salas_chat'})
 export class SuscriptoresSalasChat {
 
-    @PrimaryColumn({type:'varchar', length:20})
+    @PrimaryColumn({ type:'varchar', length: 20 })
     id_user: string
 
     @PrimaryColumn({ type: "uuid", nullable: false })
@@ -16,13 +16,13 @@ export class SuscriptoresSalasChat {
     @Column({ type: "varchar", length: 30 })
     imagen_sala: string
 
+    @Column({ type: "int" })
+    mensajes_por_leer: number
+
     @Column({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP', name: 'fecha_suscripcion' })
     fecha_suscripcion: Date
 
     @ManyToOne(() => SalasChat, { onDelete: 'CASCADE', onUpdate: 'CASCADE' })
     @JoinColumn({ name: 'id_sala', referencedColumnName: "id_sala" })
-    public salas: SalasChat;
-
-    
-
+    public salas: SalasChat; 
 }

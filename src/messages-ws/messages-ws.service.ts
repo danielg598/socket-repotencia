@@ -27,7 +27,25 @@ export class MessagesWsService {
         return await this.conectedUsers.save(userConected);
     }
 
-    async searchClientsConnect(userIds: string[]){
+    async removeClientConnected(id_client: string): Promise<any> {
+        console.log('REMOVER CLIENTE ', id_client);     
+        const dato = await this.conectedUsers
+        .createQueryBuilder('user')
+        .where("JSON_EXTRACT(client, '$.id') = :clientId", { clientId: id_client })
+        .getMany();
+
+        console.log('ENCONTRADO ', dato);
+        
+
+        const deleted = this.conectedUsers
+        .createQueryBuilder()
+        .delete()
+        .where("JSON_EXTRACT(client, '$.id') = :clientId", { clientId: id_client })
+        .execute();
+        return deleted;
+    }
+
+    async searchClientsConnected(userIds: string[]){
         return await this.conectedUsers
                 .createQueryBuilder()
                 .where('userId IN (:...userIds)', { userIds })
@@ -55,6 +73,10 @@ export class MessagesWsService {
         return await this.salasSubcritas.find({ where: { id_sala: id_sala } })
     }
 
+    async getRoomSubscribers(id_sala: string): Promise<{ id_user: string }[]> {
+        return await this.suscriptoresChats.find({ where: { id_sala: id_sala }, select: ['id_user'] });
+    }
+
     async createMensaje(mensaje: mensajes): Promise<any> {
         const message = await this.mensajesChatRepository.save(mensaje)
 
@@ -62,13 +84,7 @@ export class MessagesWsService {
     }
 
     async updateMessagesToRead(id_sala: string, id_user: string): Promise<any> {
-        try {
-            // const subscriberToUpdate = await this.suscriptoresChats.findOne({ where: { id_sala: id_sala, id_user: id_user } });
-            // if(subscriberToUpdate) {
-            //     subscriberToUpdate.mensajes_por_leer = subscriberToUpdate.mensajes_por_leer + 1;
-            //     return this.suscriptoresChats.save(subscriberToUpdate);
-            // }            
-            // console.log('CANTIDAD DE MENSAJES ', subscriberToUpdate);      
+        try {            
             const update = await this.suscriptoresChats
                         .createQueryBuilder()
                         .update(SuscriptoresSalasChat)
@@ -79,6 +95,21 @@ export class MessagesWsService {
             console.log('CANTIDAD DE MENSAJES ', update);           
         } catch (error) {
             console.log('CANTIDAD DE MENSAJES ', 'No fue posible actualizar cantidad mensajes', error);            
+        }
+    }
+
+    async updateMessagesAsRead(roomId: string, subscriberId: string): Promise<any> {
+        try {
+            const update = await this.suscriptoresChats
+                        .createQueryBuilder()
+                        .update(SuscriptoresSalasChat)
+                        .set({ mensajes_por_leer: 0 })
+                        .where('id_sala = :idSala', { idSala: roomId })
+                        .andWhere('id_user = :idUser', { idUser: subscriberId })
+                        .execute();
+            console.log('MENSAJES POR LEER ACTUALIZADOS A CERO(0) ', update);    
+        } catch (error) {
+            console.log('NO FUE POSIBLE ACTUALIZAR A CERO LA LISTA DE MENSAJES PENDINETES POR LEER', error);
         }
     }
 

@@ -16,7 +16,14 @@ export class MessagesWsGateway implements OnGatewayConnection, OnGatewayDisconne
     console.log('USUARIO CONECTADO ', client.id);
   }
 
-  handleDisconnect(client: Socket) {
+  async handleDisconnect(client: Socket) {
+    try {      
+      const removed = await this.messagesWsService.removeClientConnected(client.id);
+      console.log('EL CLIENTE FUE REMOVIDO DE LA LISTA ', removed);
+      
+    } catch (error) {
+      console.log('NO FUE POSIBLE ELIMINAR EL CLIENTE DESCONECTADO DE LA LISTA ', error);      
+    }
   }
 
   @SubscribeMessage('userConected')
@@ -125,7 +132,7 @@ export class MessagesWsGateway implements OnGatewayConnection, OnGatewayDisconne
     console.log('USER IDS ', userIds);
     
        
-    const connectedClientes = await this.messagesWsService.searchClientsConnect(userIds);
+    const connectedClientes = await this.messagesWsService.searchClientsConnected(userIds);
     this.subscribeClientsToRoom(room[0], connectedClientes)
   }
 
@@ -146,7 +153,31 @@ export class MessagesWsGateway implements OnGatewayConnection, OnGatewayDisconne
   async handleMessage(client: Socket, data: mensajes) {   
     
     const message = await this.messagesWsService.createMensaje(data);
-    const updateMessagesToRead = await this.messagesWsService.updateMessagesToRead(data.id_sala, data.id_user);
-    this.server.emit("newMessage",message)
+    await this.messagesWsService.updateMessagesToRead(data.id_sala, data.id_user);
+    const roomSubscribers = await this.messagesWsService.getRoomSubscribers(data.id_sala);
+    
+    // Se filtra los suscriptores a dicha sala que sean diferentes a quien envía el mensaje
+    let subscribersToNotify: string[] = [];
+    roomSubscribers.map((subscriber: { id_user: string }) => {
+      if(subscriber.id_user !== data.id_user) subscribersToNotify.push(subscriber.id_user);
+    });
+    console.log('NOTIFICAR A ', subscribersToNotify);
+   
+    // Se consultan los diferentes clientes desde los cuales etá conectado cada suscriptor
+    const notifyToClients = await this.messagesWsService.searchClientsConnected(subscribersToNotify);
+    notifyToClients.map((client: userConected) => {
+      this.emitEventToClient(client, 'newMessage', message);
+    })
+  }
+  
+  async emitEventToClient(client: userConected, event: string, data: any) {
+    const notifyClient = this.server.sockets.sockets.get(client.client.id);
+    notifyClient.emit(event, data)
+  }
+
+  @SubscribeMessage('setMessagesAsRead')
+  async handleSetMessagesAsRead(client: Socket, data: { id_sala: string, id_user: string }) {
+    const updated = await this.messagesWsService.updateMessagesAsRead(data.id_sala, data.id_user);
+    client.emit('messagesRead', data);
   }
 } 

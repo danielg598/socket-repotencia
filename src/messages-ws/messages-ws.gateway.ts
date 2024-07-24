@@ -4,6 +4,9 @@ import { mensajes, suscriptor } from 'src/interfaces/interfaces';
 import { MessagesWsService } from './messages-ws.service';
 import { SuscriptoresSalasChat } from 'src/entities/suscriptoresSalasChat.entity';
 import { userConected } from 'src/entities/userConected.entity';
+import path from 'path';
+import fs from 'fs';
+import { UtilitiesFunctions } from 'src/utiliies/utilities-functions';
 
 @WebSocketGateway({cors:true})
 export class MessagesWsGateway implements OnGatewayConnection, OnGatewayDisconnect { 
@@ -13,7 +16,7 @@ export class MessagesWsGateway implements OnGatewayConnection, OnGatewayDisconne
   @WebSocketServer() server: Server = new Server();
 
   handleConnection(client: Socket, user_id: string) {
-    console.log('USUARIO CONECTADO ', client.id);
+    console.log('USUARIO CONECTADO ', { cliend_id: client.id, user_id });
   }
 
   async handleDisconnect(client: Socket) {
@@ -39,49 +42,38 @@ export class MessagesWsGateway implements OnGatewayConnection, OnGatewayDisconne
       connected: client.connected,
       join: client.join('')
     };
-
+    console.log('EVENTO USER CONNECTED ', client.id);
     const data = { userId: userId, userName: userName, client: clientData };
     await this.messagesWsService.usersConected(data);
   }
 
   @SubscribeMessage('joinRoom')
-  async handleJoinRoom(client: Socket, params: { id_user: string, salasActuales: string[] }) {
-    console.log(params.salasActuales,"desde join room ");
-    
+  async handleJoinRoom(client: Socket, params: { id_user: string, salasActuales: string[] }) {    
     let salasSuscritas: suscriptor[] = [];   
     await this.messagesWsService.obtenerSalasSuscritas(params.id_user, params.salasActuales).then(response => {
-      salasSuscritas = response;
-      
+      salasSuscritas = response;      
 
-      if(response.length != 0 ){
-        
+      if(response.length != 0 ){        
         salasSuscritas.map(async (data) => {
           console.log(data, "data" );
           
           client.join((data.salas.nombre_sala));
-          // client.join("salaSuscrita");
           data.mensajes = [];
           // await this.messagesWsService.createSala(data)
-          console.log('INFO SUBSCRIPTION ', `Se ha unnido el cliente ${client.id}  a la sala ${data.nombre_sala}`);
-          
-        })
-  
+          console.log('INFO SUBSCRIPTION ', `Se ha unnido el cliente ${client.id}  a la sala ${data.nombre_sala}`);          
+        })  
         client.emit('joinedRooms', salasSuscritas);
       }
     })
-
-
   }
 
   @SubscribeMessage('joinMessages')
   async handleJoinMensajesSalas(client: Socket, id_sala: string) {
     setTimeout(async () => {
       await this.messagesWsService.obtenerMensajesSala(id_sala).then(respuesta => {
-        this.server.emit('mensajesSala', respuesta);
-        
+        this.server.emit('mensajesSala', respuesta);        
       })
     }, 100);
-
   }
 
   @SubscribeMessage('createGroup')
@@ -99,49 +91,33 @@ export class MessagesWsGateway implements OnGatewayConnection, OnGatewayDisconne
         client.emit('advertencia', res.message)
       } else {
         // let sala2 = res.message;
-        let sala = (res.message as SuscriptoresSalasChat[]).filter((subs: SuscriptoresSalasChat) => (subs.id_user === data.creador));
-        console.log(sala, "salllllaaaaaaa");
-        
+        let sala = (res.message as SuscriptoresSalasChat[]).filter((subs: SuscriptoresSalasChat) => (subs.id_user === data.creador));        
 
         const principalSubscriber = (res.message as SuscriptoresSalasChat[]).filter((subs: SuscriptoresSalasChat) => (subs.id_user === data.creador));
         await this.verifyConnectedClients(principalSubscriber as SuscriptoresSalasChat[]);
 
         const otherSubscribers = (res.message as SuscriptoresSalasChat[]).filter((subs: SuscriptoresSalasChat) => (subs.id_user !== data.creador));
         await this.verifyConnectedClients(otherSubscribers as SuscriptoresSalasChat[]);
-
-        // this.server.emit('newSala', sala)
-        
-        // this.server.emit('salaSuscrita', ...sala);
-
       }
     });
   }
 
   // Método para suscribir clientes de usuarios conectados a salas en las que sean agregados
   async verifyConnectedClients(room: (suscriptor & SuscriptoresSalasChat)[]) {
-    console.log('LLAMADO A LA VERIFICACIÓN DE CLIENTES ', room);
-
     let userIds = [];
     let roomId = '';
 
     room.map((subscriber: SuscriptoresSalasChat) => {
       userIds.push(subscriber.id_user);
       roomId = subscriber.id_sala;
-    })
-
-    console.log('USER IDS ', userIds);
-    
+    })    
        
     const connectedClientes = await this.messagesWsService.searchClientsConnected(userIds);
     this.subscribeClientsToRoom(room[0], connectedClientes)
   }
 
-  async subscribeClientsToRoom(room: SuscriptoresSalasChat, clients: userConected[]) {
-    console.log('SUBSCRIBIBG CLIENTES ', {room, clients});
-    
-    clients.map((client: userConected) => {
-      console.log('CLIENTE ', client.client.id);
-      
+  async subscribeClientsToRoom(room: SuscriptoresSalasChat, clients: userConected[]) {    
+    clients.map((client: userConected) => {      
       const notifyClient = this.server.sockets.sockets.get(client.client.id);
       notifyClient.join(room.id_sala);
       notifyClient.emit('newSala', room)
@@ -154,6 +130,13 @@ export class MessagesWsGateway implements OnGatewayConnection, OnGatewayDisconne
     
     const message = await this.messagesWsService.createMensaje(data);
     await this.messagesWsService.updateMessagesToRead(data.id_sala, data.id_user);
+
+    // Se consultan los diferentes clientes desde los cuales etá conectado el usuario que envía el mensaje y se le emite el vento para que el mensaje sea agregado en las vistas
+    const userClients = await this.messagesWsService.searchClientsConnected([data.id_user]);
+    userClients.map((client: userConected) => {
+      this.emitEventToClient(client, 'sentMessage', message);
+    })
+
     const roomSubscribers = await this.messagesWsService.getRoomSubscribers(data.id_sala);
     
     // Se filtra los suscriptores a dicha sala que sean diferentes a quien envía el mensaje
@@ -161,7 +144,6 @@ export class MessagesWsGateway implements OnGatewayConnection, OnGatewayDisconne
     roomSubscribers.map((subscriber: { id_user: string }) => {
       if(subscriber.id_user !== data.id_user) subscribersToNotify.push(subscriber.id_user);
     });
-    console.log('NOTIFICAR A ', subscribersToNotify);
    
     // Se consultan los diferentes clientes desde los cuales etá conectado cada suscriptor
     const notifyToClients = await this.messagesWsService.searchClientsConnected(subscribersToNotify);
@@ -178,6 +160,24 @@ export class MessagesWsGateway implements OnGatewayConnection, OnGatewayDisconne
   @SubscribeMessage('setMessagesAsRead')
   async handleSetMessagesAsRead(client: Socket, data: { id_sala: string, id_user: string }) {
     const updated = await this.messagesWsService.updateMessagesAsRead(data.id_sala, data.id_user);
-    client.emit('messagesRead', data);
+    // Se consultan los diferentes clientes desde los cuales etá conectado cada suscriptor
+    const notifyToClients = await this.messagesWsService.searchClientsConnected([data.id_user]);
+    notifyToClients.map((client: userConected) => {
+      this.emitEventToClient(client, 'messagesRead', data);
+    })
+  }
+
+  @SubscribeMessage('uploadFile')
+  async handleUploadFile(@MessageBody() client: Socket, data: { file: ArrayBuffer, fileName: string }): Promise<void> {
+    const buffer = Buffer.from(data.file);
+    const uniqueFileName = UtilitiesFunctions.generateHexString(12);
+    const uploadFile = path.join(__dirname, '..', 'public', 'uploads', `${data.fileName}_${uniqueFileName}`);
+
+    try {
+      fs.writeFileSync(uploadFile, buffer);
+      client.emit('uploasSuccess', { fileName: data.fileName });
+    } catch (error) {
+      console.log('Sucedió un error al cargar el archivo ', error);      
+    }
   }
 } 

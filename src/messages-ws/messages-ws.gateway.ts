@@ -1,11 +1,11 @@
 import { ConnectedSocket, MessageBody, OnGatewayConnection, OnGatewayDisconnect, SubscribeMessage, WebSocketGateway, WebSocketServer } from '@nestjs/websockets'
 import { Server, Socket } from 'socket.io';
-import { mensajes, suscriptor } from 'src/interfaces/interfaces';
+import { IFileSaveStructure, IFileStructure, mensajes, suscriptor } from 'src/interfaces/interfaces';
 import { MessagesWsService } from './messages-ws.service';
 import { SuscriptoresSalasChat } from 'src/entities/suscriptoresSalasChat.entity';
 import { userConected } from 'src/entities/userConected.entity';
-import path from 'path';
-import fs from 'fs';
+import * as path from 'path';
+import * as fs from 'fs';
 import { UtilitiesFunctions } from 'src/utiliies/utilities-functions';
 
 @WebSocketGateway({cors:true})
@@ -126,9 +126,19 @@ export class MessagesWsGateway implements OnGatewayConnection, OnGatewayDisconne
   }
 
   @SubscribeMessage('sendMessage')
-  async handleMessage(client: Socket, data: mensajes) {   
+  async handleMessage(client: Socket, data: mensajes) {
+    let archivos: IFileSaveStructure[] = [];
+    // Si el mensaje trae archivos, se almacenan y se construye el dato para la tabal
+    if(data.archivos) {
+      data.archivos.forEach((fileData: IFileStructure) => {
+        const fileSaved = this.uploadFile(fileData.file, fileData.fileName, fileData.mimeType);
+        if(fileSaved.status) {
+          archivos.push({ nombre_archivo: fileSaved.fileName, ubicacion: fileSaved.fileLocation, mime_type: fileSaved.mimeType });
+        }
+      })
+    }
     
-    const message = await this.messagesWsService.createMensaje(data);
+    const message = await this.messagesWsService.createMensaje({ ...data, archivos});
     await this.messagesWsService.updateMessagesToRead(data.id_sala, data.id_user);
 
     // Se consultan los diferentes clientes desde los cuales etá conectado el usuario que envía el mensaje y se le emite el vento para que el mensaje sea agregado en las vistas
@@ -167,17 +177,25 @@ export class MessagesWsGateway implements OnGatewayConnection, OnGatewayDisconne
     })
   }
 
-  @SubscribeMessage('uploadFile')
-  async handleUploadFile(@MessageBody() client: Socket, data: { file: ArrayBuffer, fileName: string }): Promise<void> {
-    const buffer = Buffer.from(data.file);
+  uploadFile(file: ArrayBuffer, fileName: string, fileMimeType: string): { status: boolean, fileName: string | null, fileLocation: string | null, mimeType: string | null } {
+    const buffer = Buffer.from(file);
     const uniqueFileName = UtilitiesFunctions.generateHexString(12);
-    const uploadFile = path.join(__dirname, '..', 'public', 'uploads', `${data.fileName}_${uniqueFileName}`);
-
+    const uploadDir = path.join(__dirname, '..', '..', 'public', 'uploads');
+    const fileNameSaved = `${uniqueFileName}_${fileName}`;
+    const uploadFile = path.join(uploadDir, fileNameSaved);
+    let response: { status: boolean, fileName: string | null, fileLocation: string | null, mimeType: string | null } = { status: false, fileName: null, fileLocation: null, mimeType: null };
     try {
+      // Verificar si existen los directorios y crearlos si no es así
+      if(!fs.existsSync(uploadDir)) {
+        // Crear carpetas
+        fs.mkdirSync(uploadDir, { recursive: true, mode: 0o755 });
+      }
+      // Guardar archivo
       fs.writeFileSync(uploadFile, buffer);
-      client.emit('uploasSuccess', { fileName: data.fileName });
+      response = { status: true, fileName: fileNameSaved, fileLocation: 'uploads', mimeType: fileMimeType };
     } catch (error) {
-      console.log('Sucedió un error al cargar el archivo ', error);      
+      console.log('Sucedió un error al cargar el archivo ', error);
     }
+    return response;
   }
-} 
+}

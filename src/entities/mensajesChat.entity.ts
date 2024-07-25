@@ -9,9 +9,12 @@ export class MensajesChat {
 
   @Column({ type: "varchar", length: 50, nullable: false })
   id_sala: string;
-
+  
   @Column({ type: "varchar", length: 450, nullable: false })
   message: string;
+  
+  @Column({ type: "json", nullable: true, comment: 'contiene la lista de archivos del mensaje si los hay' })
+  archivos: Record<string, any>;
 
   @Column({ type: "uuid", nullable: false })
   id_user: string;

@@ -1,11 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { notEqual } from 'assert';
+import { ArchivosChat } from 'src/entities/archivosChat.entity';
 import { MensajesChat } from 'src/entities/mensajesChat.entity';
 import { SalasChat } from 'src/entities/salasChat.entity';
 import { SuscriptoresSalasChat } from 'src/entities/suscriptoresSalasChat.entity';
 import { userConected } from 'src/entities/userConected.entity';
-import { mensajes, salasChat, suscriptor } from 'src/interfaces/interfaces';
+import { IMessageSaveStructure, mensajes, salasChat, suscriptor } from 'src/interfaces/interfaces';
 import { Repository } from 'typeorm';
 
 @Injectable()
@@ -19,7 +20,9 @@ export class MessagesWsService {
         @InjectRepository(SuscriptoresSalasChat)
         private suscriptoresChats: Repository<SuscriptoresSalasChat>,
         @InjectRepository(userConected)
-        private conectedUsers: Repository<userConected>
+        private conectedUsers: Repository<userConected>,
+        // @InjectRepository(ArchivosChat)
+        // private archivosChat: Repository<ArchivosChat>
     ) { }
 
     async usersConected(data:{userId:string, userName:string, client?:any}){
@@ -77,7 +80,7 @@ export class MessagesWsService {
         return await this.suscriptoresChats.find({ where: { id_sala: id_sala }, select: ['id_user'] });
     }
 
-    async createMensaje(mensaje: mensajes): Promise<any> {
+    async createMensaje(mensaje: IMessageSaveStructure): Promise<any> {
         const message = await this.mensajesChatRepository.save(mensaje)
 
         return message;
@@ -161,7 +164,5 @@ export class MessagesWsService {
 
     async createSubscriptor(data: suscriptor[]) {
         return await this.suscriptoresChats.save(data);
-    }
-
-     
+    }     
 }

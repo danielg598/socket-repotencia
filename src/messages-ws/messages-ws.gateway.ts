@@ -6,6 +6,7 @@ import { SuscriptoresSalasChat } from 'src/entities/suscriptoresSalasChat.entity
 import { userConected } from 'src/entities/userConected.entity';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as fsp from 'fs/promises';
 import { UtilitiesFunctions } from 'src/utiliies/utilities-functions';
 
 @WebSocketGateway({cors:true})
@@ -177,13 +178,26 @@ export class MessagesWsGateway implements OnGatewayConnection, OnGatewayDisconne
     })
   }
 
+  @SubscribeMessage('getFile')
+  async handleGetFile(@MessageBody('data') data: { fileName: string, location: string }, @ConnectedSocket() client: Socket): Promise<void> {
+    const folderPath = path.join(__dirname, '..', '..', 'public', data.location)
+    const filePath = path.join(folderPath, data.fileName);
+    try {
+      const fileBuffer = await fsp.readFile(filePath);
+      client.emit('getFileSuccess', { fileName: data.fileName, data: fileBuffer.toString('base64') });
+    } catch (error) {
+      console.error('Error al leer el archivo: ', error);
+      client.emit('getFileError', { message: 'Error al obtener el archivo.' });      
+    }
+  }
+
   uploadFile(file: ArrayBuffer, fileName: string, fileMimeType: string): { status: boolean, fileName: string | null, fileLocation: string | null, mimeType: string | null } {
+    let response: { status: boolean, fileName: string | null, fileLocation: string | null, mimeType: string | null } = { status: false, fileName: null, fileLocation: null, mimeType: null };
     const buffer = Buffer.from(file);
     const uniqueFileName = UtilitiesFunctions.generateHexString(12);
     const uploadDir = path.join(__dirname, '..', '..', 'public', 'uploads');
     const fileNameSaved = `${uniqueFileName}_${fileName}`;
     const uploadFile = path.join(uploadDir, fileNameSaved);
-    let response: { status: boolean, fileName: string | null, fileLocation: string | null, mimeType: string | null } = { status: false, fileName: null, fileLocation: null, mimeType: null };
     try {
       // Verificar si existen los directorios y crearlos si no es así
       if(!fs.existsSync(uploadDir)) {
